@@ -50,7 +50,7 @@ def generate_fault_signal(fault_type, rot_freq, fs=10000, duration=1.0):
             if 0 <= idx < len(t) - impact_width:
                 impact = np.hanning(impact_width) * 0.3  # soft impulse shape
                 signal[idx:idx + impact_width] += impact
-        return t, signal
+    return t, signal
 
 def compute_fft(y, fs):
     n = len(y)
