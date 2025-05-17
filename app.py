@@ -6,13 +6,12 @@ from scipy.stats import describe
 
 # Fault frequency multipliers
 bpfi, bpfo, ftf, bsf = 4.93, 3.07, 0.38, 2.04
-ppf = 2.5
 
 def generate_fault_signal(fault_type, rot_freq, fs=10000, duration=1.0):
     t = np.linspace(0, duration, int(fs * duration), endpoint=False)
     signal = np.zeros_like(t)
 
-    base_amp = 6.3
+    base_amp = 1
 
     if fault_type == "Normal":
         # 1X + minor harmonics + noise
@@ -30,12 +29,28 @@ def generate_fault_signal(fault_type, rot_freq, fs=10000, duration=1.0):
             signal += (0.2 + 0.02 * i) * base_amp * np.sin(2 * np.pi * i * rot_freq * t)
         signal += 0.2 * np.random.randn(len(t))  # raised noise floor
     elif fault_type == "Bearing Fault":
+        # Start with a 'normal' baseline signal
         signal += 1.0 * np.sin(2 * np.pi * rot_freq * t)
+        signal += 0.2 * np.sin(2 * np.pi * 2 * rot_freq * t)
+        signal += 0.1 * np.sin(2 * np.pi * 3 * rot_freq * t)
+        signal += 0.05 * np.random.randn(len(t))
+    
+        # Add bearing fault frequencies (BPFI)
         signal += 0.2 * np.sin(2 * np.pi * bpfi * rot_freq * t)
         signal += 0.18 * np.sin(2 * np.pi * 2 * bpfi * rot_freq * t)
         signal += 0.18 * np.sin(2 * np.pi * 3 * bpfi * rot_freq * t)
-        signal += 0.05 * np.random.randn(len(t))
-    return t, signal
+    
+        # Add regular impacts spaced by 1 / (rot_freq * bpfi)
+        impact_interval = 1 / (rot_freq * bpfi)
+        impact_times = np.arange(0, duration, impact_interval)
+        impact_width = int(0.001 * fs)  # small pulse width (1 ms)
+    
+        for it in impact_times:
+            idx = int(it * fs)
+            if 0 <= idx < len(t) - impact_width:
+                impact = np.hanning(impact_width) * 0.3  # soft impulse shape
+                signal[idx:idx + impact_width] += impact
+        return t, signal
 
 def compute_fft(y, fs):
     n = len(y)
@@ -57,17 +72,22 @@ def compute_stats(y):
         "Skewness": desc.skewness,
         "Kurtosis": desc.kurtosis
     }
+from scipy.signal import hilbert
 
+def calculate_envelope_spectrum(y, fs):
+    analytic = hilbert(y - np.mean(y))
+    envelope = np.abs(analytic)
+    return compute_fft(envelope - np.mean(envelope), fs)
+    
 def plot_signal(t, y, xf, yf):
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=t, y=y, name='Time Signal'))
-    fig.update_layout(title="Time Domain", xaxis_title="Time (s)", yaxis_title="Amplitude")
+    env_xf, env_yf = calculate_envelope_spectrum(y, fs)
 
-    fig2 = go.Figure()
-    fig2.add_trace(go.Scatter(x=xf, y=yf, name='FFT'))
-    fig2.update_layout(title="Frequency Spectrum", xaxis_title="Frequency (Hz)", yaxis_title="Amplitude")
+    fig_time = go.Figure().add_trace(go.Scatter(x=t, y=y, name='Time')).update_layout(title="Time Domain")
+    fig_fft = go.Figure().add_trace(go.Scatter(x=xf, y=yf, name='FFT')).update_layout(title="Frequency Spectrum")
+    fig_env = go.Figure().add_trace(go.Scatter(x=env_xf, y=env_yf, name='Envelope')).update_layout(title="Envelope Spectrum")
 
-    return fig, fig2
+    return fig_time, fig_fft, fig_env
+
 
 # --- Streamlit UI ---
 st.set_page_config("Vibration Fault Pattern Simulator", layout="wide")
@@ -86,14 +106,13 @@ rot_freq = rpm / 60.0
 if st.button("Generate & Analyze"):
     t, signal = generate_fault_signal(fault_type, rot_freq, fs, duration)
     xf, yf = compute_fft(signal, fs)
-    fig_time, fig_fft = plot_signal(t, signal, xf, yf)
 
-    st.subheader("Time Domain Signal")
-    st.plotly_chart(fig_time, use_container_width=True)
+    fig_time, fig_fft, fig_env = plot_signal(t, signal, xf, yf)
+    st.plotly_chart(fig_time)
+    st.plotly_chart(fig_fft)
+    st.plotly_chart(fig_env)
 
-    st.subheader("Frequency Spectrum")
-    st.plotly_chart(fig_fft, use_container_width=True)
-
+    
     st.subheader("Signal Statistics")
     stats = compute_stats(signal)
     cols = st.columns(4)
