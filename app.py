@@ -26,7 +26,7 @@ def generate_fault_signal(fault_type, rot_freq, fs=10000, duration=1.0):
         signal += 0.6 * base_amp * np.sin(2 * np.pi * 2 * rot_freq * t)
     elif fault_type == "Looseness":
         for i in range(1, 11):
-            signal += (0.2 + 0.02 * i) * base_amp * np.sin(2 * np.pi * i * rot_freq * t)
+            signal += (0.2 - 0.02 * i) * base_amp * np.sin(2 * np.pi * i * rot_freq * t)
         signal += 0.2 * np.random.randn(len(t))  # raised noise floor
     elif fault_type == "Bearing Fault":
         # Start with a 'normal' baseline signal
